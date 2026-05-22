@@ -1,105 +1,113 @@
+from pathlib import Path
+
+import numpy as np
 import streamlit as st
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from PIL import Image
 
-# 1. Title and Description
-st.title('🐧 Palmer Penguin Species Predictor')
-st.markdown("""
-This app predicts the **Penguin Species** (Adelie, Chinstrap, or Gentoo) 
-using a machine learning model trained on the **Palmer Penguins dataset**.
-""")
-st.image("https://allisonhorst.github.io/palmerpenguins/reference/figures/lter_penguins.png") 
 
-# 2. Load and Clean Data
-@st.cache_data
-def load_data():
-    # Load the specific CSV from your Kaggle download
-    df = pd.read_csv('penguins_size.csv')
-    
-    # Drop rows with missing values (NaN) to prevent errors
-    df.dropna(inplace=True)
-    
-    # Optional: Fix a known issue in this dataset where one 'sex' entry is just a "."
-    df = df[df['sex'] != '.']
-    
-    return df
+MODEL_PATH = Path("models/penguin_image_classifier.keras")
+CLASS_NAMES_PATH = Path("models/class_names.txt")
+IMAGE_SIZE = (224, 224)
 
-try:
-    df = load_data()
-except FileNotFoundError:
-    st.error("Error: 'penguins_size.csv' not found. Please make sure the file is in the same folder.")
+
+st.set_page_config(page_title="Penguin Image Classifier")
+st.title("Penguin Image Classifier")
+st.markdown(
+    "Upload a penguin image and the deep learning model will predict which "
+    "penguin class it belongs to."
+)
+
+
+def read_class_names():
+    if not CLASS_NAMES_PATH.exists():
+        return None
+    return [
+        line.strip()
+        for line in CLASS_NAMES_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+@st.cache_resource
+def load_model():
+    if not MODEL_PATH.exists():
+        return None, (
+            "No trained model found. Train one first with "
+            "`python train_image_classifier.py --data-dir data/penguins`."
+        )
+
+    try:
+        import tensorflow as tf
+    except ImportError:
+        return None, "TensorFlow is not installed. Run `pip install -r requirements.txt`."
+
+    return tf.keras.models.load_model(MODEL_PATH), None
+
+
+def prepare_image(image):
+    image = image.convert("RGB").resize(IMAGE_SIZE)
+    array = np.asarray(image, dtype=np.float32)
+    return np.expand_dims(array, axis=0)
+
+
+class_names = read_class_names()
+model, model_error = load_model()
+
+with st.sidebar:
+    st.header("Model")
+    st.write(f"Model file: `{MODEL_PATH}`")
+    if class_names:
+        st.write("Classes")
+        st.write(", ".join(class_names))
+
+uploaded_file = st.file_uploader(
+    "Choose a penguin image",
+    type=("jpg", "jpeg", "png", "webp"),
+)
+
+if model_error:
+    st.warning(model_error)
+    st.info(
+        "Put training images in folders by class, for example "
+        "`data/penguins/Adelie`, `data/penguins/Chinstrap`, and "
+        "`data/penguins/Gentoo`, then run the training command."
+    )
+
+if uploaded_file is None:
     st.stop()
 
-# 3. Train Model (on the fly)
-# We separate the "Target" (Species) from the "Features" (Measurements)
-X = df.drop(columns=['species'])
-y = df['species']
+image = Image.open(uploaded_file)
+st.image(image, caption="Uploaded image", use_container_width=True)
 
-# Convert categorical text (Male/Female, Island) into numbers
-X = pd.get_dummies(X, columns=['island', 'sex'])
+if model is None:
+    st.stop()
 
-# Train the Random Forest
-model = RandomForestClassifier()
-model.fit(X, y)
+if not class_names:
+    st.error(f"Class label file not found: `{CLASS_NAMES_PATH}`")
+    st.stop()
 
-# 4. Sidebar Inputs for User
-st.sidebar.header('User Input Features')
+input_batch = prepare_image(image)
+probabilities = model.predict(input_batch, verbose=0)[0]
+predicted_index = int(np.argmax(probabilities))
+predicted_class = class_names[predicted_index]
+confidence = float(probabilities[predicted_index])
 
-def user_input_features():
-    # Slider inputs for numerical features
-    island = st.sidebar.selectbox('Island', ('Biscoe', 'Dream', 'Torgersen'))
-    sex = st.sidebar.selectbox('Sex', ('MALE', 'FEMALE'))
-    bill_length_mm = st.sidebar.slider('Bill Length (mm)', 32.1, 59.6, 43.9)
-    bill_depth_mm = st.sidebar.slider('Bill Depth (mm)', 13.1, 21.5, 17.2)
-    flipper_length_mm = st.sidebar.slider('Flipper Length (mm)', 172.0, 231.0, 201.0)
-    body_mass_g = st.sidebar.slider('Body Mass (g)', 2700.0, 6300.0, 4207.0)
-    
-    # Store inputs in a DataFrame
-    data = {'island': island,
-            'bill_length_mm': bill_length_mm,
-            'bill_depth_mm': bill_depth_mm,
-            'flipper_length_mm': flipper_length_mm,
-            'body_mass_g': body_mass_g,
-            'sex': sex}
-    features = pd.DataFrame(data, index=[0])
-    return features
+st.subheader("Prediction")
+st.write(f"**{predicted_class}**")
+st.progress(confidence)
+st.caption(f"Confidence: {confidence:.1%}")
 
-input_df = user_input_features()
-
-# 5. Preprocess User Input (Match the training data format)
-# We join user input with the original data (dummy row) to ensure One-Hot Encoding matches
-# (This trick ensures we get columns like 'island_Dream' even if the user picked 'Biscoe')
-raw_penguins = df.drop(columns=['species'])
-combined_df = pd.concat([input_df, raw_penguins], axis=0)
-
-# Encode just like we did for training
-encode = ['island', 'sex']
-combined_df = pd.get_dummies(combined_df, columns=encode)
-
-# Select only the first row (the user input)
-input_row = combined_df[:1]
-
-# 6. Prediction
-st.subheader('Prediction')
-prediction = model.predict(input_row)
-prediction_proba = model.predict_proba(input_row)
-
-st.write(f"The model predicts this penguin is a: **{prediction[0]}**")
-st.write("---")
-
-# 7. Visualization (Feature Importance)
-# This shows the user WHICH inputs mattered most
-st.subheader('Why did the model choose this?')
-st.write("Feature Importance (What the AI looked at):")
-
-feature_importance = model.feature_importances_
-feature_names = input_row.columns
-importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': feature_importance})
-importance_df = importance_df.sort_values(by='Importance', ascending=False)
-
-fig, ax = plt.subplots()
-sns.barplot(x='Importance', y='Feature', data=importance_df, palette='viridis', ax=ax)
-st.pyplot(fig)
+st.subheader("Class probabilities")
+probability_table = sorted(
+    zip(class_names, probabilities),
+    key=lambda item: item[1],
+    reverse=True,
+)
+st.dataframe(
+    {
+        "Penguin": [name for name, _ in probability_table],
+        "Probability": [f"{score:.1%}" for _, score in probability_table],
+    },
+    hide_index=True,
+    use_container_width=True,
+)
