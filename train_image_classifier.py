@@ -74,7 +74,9 @@ def build_model(num_classes, weights):
         include_top=False,
         weights=None if weights == "none" else weights,
     )
-    base_model.trainable = False
+    # Only freeze the base model if we are using transfer learning weights.
+    # If training from scratch (weights == "none"), the base model must remain trainable.
+    base_model.trainable = (weights != "none")
 
     inputs = tf.keras.Input(shape=IMAGE_SIZE + (3,))
     x = data_augmentation(inputs)
