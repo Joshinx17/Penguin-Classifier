@@ -1,3 +1,7 @@
+"""Generate labeled *illustrations* for pipeline smoke tests, not photographs."""
+
+import argparse
+import json
 import random
 from pathlib import Path
 from PIL import Image, ImageDraw
@@ -129,7 +133,14 @@ def generate_synthetic_penguin(species, path, index):
 
 
 def main():
-    data_dir = Path("data/penguins")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, default=Path("data/demo_penguins"))
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+    data_dir = args.output_dir
+    if data_dir.exists() and any(data_dir.iterdir()):
+        parser.error(f"Output directory is not empty: {data_dir}")
+    random.seed(args.seed)
     data_dir.mkdir(parents=True, exist_ok=True)
 
     print("--- Generating Stylized Synthetic Penguin Dataset ---")
@@ -146,15 +157,24 @@ def main():
             dest_path = species_dir / f"sample-{i}.jpg"
             generate_synthetic_penguin(species, dest_path, i)
 
-    # Save a test image
-    test_image_path = Path("data/test_penguin.jpg")
-    print("\nGenerating separate Chinstrap test image...")
-    generate_synthetic_penguin("Chinstrap", test_image_path, 999)
+    (data_dir / ".synthetic-demo.json").write_text(
+        json.dumps(
+            {
+                "type": "generated illustrations",
+                "seed": args.seed,
+                "warning": "Not photographic training or evaluation data",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     print("\n--- Generation Completed! ---")
     print(f"Dataset generated at: {data_dir.resolve()}")
-    print("You can train the model now by running:")
-    print("  python train_image_classifier.py --data-dir data/penguins --epochs 5")
+    print("For a pipeline smoke test only, run:")
+    print(
+        f'  python train_image_classifier.py --data-dir "{data_dir}" --allow-demo-data --weights none --epochs 1 --output-dir models/demo-run --report-dir reports/demo-run'
+    )
 
 
 if __name__ == "__main__":

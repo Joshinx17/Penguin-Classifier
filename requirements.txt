@@ -1,4 +1,7 @@
-streamlit
-tensorflow-cpu
-numpy
-pillow
+tensorflow-cpu>=2.19,<2.21; platform_system != "Darwin"
+tensorflow>=2.19,<2.21; platform_system == "Darwin"
+streamlit>=1.45,<2
+numpy>=1.26,<3
+Pillow>=10,<13
+scikit-learn>=1.6,<2
+matplotlib>=3.8,<4

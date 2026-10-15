@@ -1,7 +1,15 @@
 __pycache__/
 *.pyc
-.streamlit/
+.streamlit/secrets.toml
 .venv/
 venv/
 data/
 models/
+reports/
+.pytest_cache/
+.pytest_tmp/
+.mplconfig/
+.tmp/
+build/
+*.egg-info/
+.ruff_cache/
